@@ -53,3 +53,5 @@ coverage
 /src/data/csv/pokemon_types.csv
 /src/data/csv/stats.csv
 /src/data/csv/types.csv
+/.vite/deps/_metadata.json
+/.vite/deps/package.json
