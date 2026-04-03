@@ -42,6 +42,9 @@
         </div>
       </div>
 
+      <!-- Evolution Chain -->
+      <PokeLine v-if="evolutionChainUrl" :evolutionChainUrl="evolutionChainUrl" />
+
       <!-- Base Stats -->
       <PokeStats :stats="pokemon.stats" />
 
@@ -87,6 +90,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import PokeStats from './PokeStats.vue'
 import PokeMoves from './PokeMoves.vue'
+import PokeLine from './PokeLine.vue'
 
 const API_BASE_URL = 'https://pokeapi.co/api/v2'
 
@@ -94,6 +98,7 @@ const route = useRoute()
 const pokemon = ref(null)
 const abilities = ref([])
 const moves = ref([])
+const evolutionChainUrl = ref(null)
 const loading = ref(false)
 const error = ref(null)
 const cache = new Map()
@@ -140,6 +145,8 @@ onMounted(async () => {
     const generation = await cachedFetch(species.generation.url)
 
     const genName = generation.names.find((n) => n.language.name === 'en')
+
+    evolutionChainUrl.value = species.evolution_chain?.url || null
 
     pokemon.value = {
       name: data.name.charAt(0).toUpperCase() + data.name.slice(1),
