@@ -97,6 +97,11 @@ case "$TARGET" in
 
     cd dist
 
+    # Preserve custom domain config across deploys
+    if [ -n "${CNAME_DOMAIN:-}" ]; then
+      echo "$CNAME_DOMAIN" > CNAME
+    fi
+
     git init
     git checkout -b gh-pages
     git add -A
