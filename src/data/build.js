@@ -56,6 +56,20 @@ const writeJSON = async (filename, data) => {
     console.log(`  ✓ ${filename} (${Array.isArray(data) ? data.length + ' entries' : Object.keys(data).length + ' keys'})`)
 }
 
+/**
+ * Strips PokeAPI prose markup tags.
+ * e.g. "[Special Attack]{mechanic:special-attack}" → "Special Attack"
+ *      "[burn]{mechanic:burn}" → "burn"
+ */
+const cleanProseMarkup = (text) => {
+    if (!text) return text
+    // [display text]{type:id} → display text
+    // []{type:id} → id (empty bracket fallback)
+    return text
+        .replace(/\[([^\]]+)\]\{[^}]+\}/g, '$1')
+        .replace(/\[\]\{[^:]+:([^}]+)\}/g, '$1')
+}
+
 // --- Builders ---
 
 const buildPokemon = async () => {
@@ -137,7 +151,7 @@ const buildAbilities = async () => {
     const proseMap = Object.fromEntries(
         prose
             .filter((p) => p.local_language_id === ENGLISH_LANG_ID)
-            .map((p) => [p.ability_id, p.short_effect])
+            .map((p) => [p.ability_id, cleanProseMarkup(p.short_effect)])
     )
 
     const abilityMap = Object.fromEntries(
@@ -174,7 +188,7 @@ const buildMoves = async () => {
     const proseMap = Object.fromEntries(
         prose
             .filter((p) => p.local_language_id === ENGLISH_LANG_ID)
-            .map((p) => [p.move_effect_id, p.short_effect])
+            .map((p) => [p.move_effect_id, cleanProseMarkup(p.short_effect)])
     )
 
     const result = {}
