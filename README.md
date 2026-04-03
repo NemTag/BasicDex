@@ -150,7 +150,8 @@ npm run dev
 [PokeAPI](https://pokeapi.co/) is a free, open resource for educational use. This project minimizes API load by:
 
 - Shipping a local copy of the database for all data queries
-- Only fetching sprite/artwork URLs (which are served from static GitHub assets)
+- Only fetching sprite/artwork URLs (which are served from static GitHub assets). I would try to download the sprite repo but my hard drive is actually pretty small lol. Sorry!
+Note: early on in the project I accidentally coded in recursion and sent like 10,000 requests. Please forgive me if you can see this.
 - Caching all sprite responses in memory for the session lifetime
 - Deduplicating concurrent requests to the same endpoint
 
