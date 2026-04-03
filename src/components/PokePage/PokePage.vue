@@ -14,46 +14,88 @@
       {{ error }}
     </div>
 
-    <div v-if="pokemon" class="detail-card d-flex align-items-start mt-4">
-      <img
-          :src="pokemon.sprite"
-          :alt="pokemon.name"
-          class="detail-sprite"
-      />
+    <div v-if="pokemon" class="detail-content mt-4">
+      <div class="detail-card d-flex align-items-start">
+        <img
+            :src="pokemon.sprite"
+            :alt="pokemon.name"
+            class="detail-sprite"
+        />
 
-      <div class="detail-info ms-4">
-        <h1 class="pokemon-name">{{ pokemon.name }}</h1>
+        <div class="detail-info ms-4">
+          <h1 class="pokemon-name">{{ pokemon.name }}</h1>
 
-        <p class="dex-number text-muted">#{{ pokemon.dexNumber }}</p>
+          <p class="dex-number text-muted">#{{ pokemon.dexNumber }}</p>
 
-        <div class="type-badges mb-2">
-          <span
-              v-for="type in pokemon.types"
-              :key="type"
-              class="badge type-badge"
-              :class="`type-${type}`"
+          <div class="type-badges mb-2">
+            <span
+                v-for="type in pokemon.types"
+                :key="type"
+                class="badge type-badge"
+                :class="`type-${type}`"
+            >
+              {{ type }}
+            </span>
+          </div>
+
+          <span class="badge generation-badge">{{ pokemon.generation }}</span>
+        </div>
+      </div>
+
+      <!-- Abilities Section -->
+      <section class="abilities-section mt-5">
+        <h3 class="section-title">Abilities</h3>
+
+        <div v-if="abilities.length" class="ability-list">
+          <div
+              v-for="ability in normalAbilities"
+              :key="ability.name"
+              class="ability-row"
           >
-            {{ type }}
-          </span>
+            <span class="ability-name">{{ ability.name }}</span>
+            <span class="ability-desc">{{ ability.effect }}</span>
+          </div>
         </div>
 
-        <span class="badge generation-badge">{{ pokemon.generation }}</span>
-      </div>
+        <div v-if="hiddenAbilities.length" class="mt-4">
+          <h5 class="hidden-title">Hidden</h5>
+
+          <div class="ability-list">
+            <div
+                v-for="ability in hiddenAbilities"
+                :key="ability.name"
+                class="ability-row hidden"
+            >
+              <span class="ability-name">{{ ability.name }}</span>
+              <span class="ability-desc">{{ ability.effect }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 
 const API_BASE_URL = 'https://pokeapi.co/api/v2'
 
 const route = useRoute()
 const pokemon = ref(null)
+const abilities = ref([])
 const loading = ref(false)
 const error = ref(null)
 const cache = new Map()
+
+const normalAbilities = computed(() =>
+    abilities.value.filter((a) => !a.is_hidden)
+)
+
+const hiddenAbilities = computed(() =>
+    abilities.value.filter((a) => a.is_hidden)
+)
 
 const cachedFetch = async (url) => {
   if (cache.has(url)) return cache.get(url)
@@ -88,6 +130,28 @@ onMounted(async () => {
       dexNumber: String(data.id).padStart(4, '0'),
       generation: genName ? genName.name : species.generation.name
     }
+
+    // Fetch ability details
+    const abilityResults = await Promise.all(
+        data.abilities.map(async (a) => {
+          const abilityData = await cachedFetch(a.ability.url)
+
+          const effectEntry = abilityData.effect_entries.find(
+              (e) => e.language.name === 'en'
+          )
+
+          return {
+            name: a.ability.name
+                .split('-')
+                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(' '),
+            effect: effectEntry ? effectEntry.short_effect : 'No description available.',
+            is_hidden: a.is_hidden
+          }
+        })
+    )
+
+    abilities.value = abilityResults
   } catch (err) {
     error.value = 'Failed to load Pokémon details.'
     console.error(err)
@@ -171,5 +235,58 @@ onMounted(async () => {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Abilities */
+.abilities-section {
+  text-align: left;
+}
+
+.section-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #2c3e50;
+  margin-bottom: 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid #dc3545;
+}
+
+.hidden-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #6c757d;
+  margin-bottom: 0.6rem;
+}
+
+.ability-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.ability-row {
+  display: flex;
+  align-items: baseline;
+  padding: 0.6rem 0.8rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+}
+
+.ability-row.hidden {
+  background-color: #f0f0f5;
+  border-left: 3px solid #6c757d;
+}
+
+.ability-name {
+  font-weight: 600;
+  min-width: 160px;
+  flex-shrink: 0;
+  color: #2c3e50;
+}
+
+.ability-desc {
+  color: #555;
+  font-size: 0.92rem;
+  line-height: 1.4;
 }
 </style>
