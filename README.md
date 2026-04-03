@@ -1,6 +1,9 @@
 # Pokédex — Vue 3 + PokeAPI
 
-A modern, responsive Pokédex application built with Vue 3's Composition API. The app leverages a local copy of the PokeAPI database for instant data lookups, only reaching out to the network for sprite and artwork assets.
+A practice project built upon the PokeAPI. This project will continue to change as I make updates and more feature optimizations. 
+Feel free to fork it. I will not be accepting pull requests since this is a for-fun personal project.
+**Disclaimer**
+Most of this markdown was written by AI lol. 
 
 ## Features
 
