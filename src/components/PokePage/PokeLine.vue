@@ -34,113 +34,61 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { fetchSprites, getEvolutionChain, getForms } from '@/composables/usePokeApi'
 
 const props = defineProps({
-  evolutionChainUrl: {
-    type: String,
+  evolutionChainId: {
+    type: Number,
     required: true
   }
 })
 
 const chain = ref([])
 const loading = ref(false)
-const cache = new Map()
-
-const cachedFetch = async (url) => {
-  if (cache.has(url)) return cache.get(url)
-
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-
-  const data = await res.json()
-  cache.set(url, data)
-  return data
-}
-
-const API_BASE_URL = 'https://pokeapi.co/api/v2'
 
 const formatName = (name) =>
     name.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 
-const parseTrigger = (details) => {
-  if (!details || !details.length) return null
-
-  const d = details[0]
-  const triggerName = d.trigger?.name
-
-  if (triggerName === 'level-up' && d.min_level) {
-    return `↑ Lv. ${d.min_level}`
-  }
-
-  if (triggerName === 'level-up' && d.min_happiness) {
-    return `↑ Happiness ${d.min_happiness}`
-  }
-
-  if (triggerName === 'level-up' && d.min_beauty) {
-    return `↑ Beauty ${d.min_beauty}`
-  }
-
-  if (triggerName === 'level-up' && d.min_affection) {
-    return `↑ Affection ${d.min_affection}`
-  }
-
-  if (triggerName === 'level-up' && d.needs_overworld_rain) {
-    return '↑ Rain'
-  }
-
-  if (triggerName === 'level-up' && d.party_species) {
-    return `↑ w/ ${formatName(d.party_species.name)}`
-  }
-
-  if (triggerName === 'level-up' && d.party_type) {
-    return `↑ w/ ${formatName(d.party_type.name)} type`
-  }
-
-  if (triggerName === 'level-up') {
-    return '↑ Level Up'
-  }
-
-  return `↑ ${formatName(triggerName)}`
-}
-
-const flattenChain = (node, result = []) => {
-  result.push({
-    name: node.species.name,
-    displayName: formatName(node.species.name),
-    triggerLabel: parseTrigger(node.evolution_details),
-    speciesUrl: node.species.url
-  })
-
-  for (const next of node.evolves_to) {
-    flattenChain(next, result)
-  }
-
-  return result
-}
-
 onMounted(async () => {
-  if (!props.evolutionChainUrl) return
+  if (!props.evolutionChainId) return
 
   loading.value = true
 
   try {
-    const chainData = await cachedFetch(props.evolutionChainUrl)
-    const stages = flattenChain(chainData.chain)
+    const stages = getEvolutionChain(props.evolutionChainId)
+    const builtChain = []
 
-    // Fetch sprites for each stage
-    chain.value = await Promise.all(
-        stages.map(async (stage) => {
-          const id = stage.speciesUrl.split('/').filter(Boolean).pop()
-          const pokemon = await cachedFetch(`${API_BASE_URL}/pokemon/${id}`)
+    for (const stage of stages) {
+      const sprites = await fetchSprites(stage.id)
 
-          return {
-            ...stage,
-            sprite:
-                pokemon.sprites.other['official-artwork'].front_default ||
-                pokemon.sprites.front_default
-          }
+      builtChain.push({
+        ...stage,
+        sprite: sprites.official || sprites.default
+      })
+
+      // Check for mega / gmax forms
+      const forms = getForms(stage.id)
+
+      for (const form of forms) {
+        let formSprite = null
+
+        try {
+          const formSprites = await fetchSprites(form.pokemon_id)
+          formSprite = formSprites.official || formSprites.default
+        } catch {
+          formSprite = sprites.official || sprites.default
+        }
+
+        builtChain.push({
+          name: form.name,
+          displayName: form.displayName || formatName(form.name),
+          triggerLabel: form.triggerLabel,
+          sprite: formSprite
         })
-    )
+      }
+    }
+
+    chain.value = builtChain
   } catch (err) {
     console.error('Failed to load evolution chain:', err)
   } finally {

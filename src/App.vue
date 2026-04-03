@@ -1,7 +1,7 @@
 <template>
   <div id="app">
     <header>
-      <h1 @click="$router.push('/')" class="header-title">Pokédex</h1>
+      <h1 @click="$router.push('/')" class="header-title">Simple Pokédex</h1>
     </header>
 
     <router-view />

@@ -15,44 +15,54 @@
     </div>
 
     <div v-if="pokemon" class="detail-content mt-4">
-      <div class="detail-card d-flex align-items-start">
-        <img
-            :src="pokemon.sprite"
-            :alt="pokemon.name"
-            class="detail-sprite"
-        />
+      <div class="top-section">
+        <!-- Left: Pokemon info + stats -->
+        <div class="left-column">
+          <div class="detail-card d-flex align-items-start">
+            <img
+                :src="pokemon.sprite"
+                :alt="pokemon.name"
+                class="detail-sprite"
+            />
 
-        <div class="detail-info ms-4">
-          <h1 class="pokemon-name">{{ pokemon.name }}</h1>
+            <div class="detail-info ms-4">
+              <h1 class="pokemon-name">{{ pokemon.name }}</h1>
 
-          <p class="dex-number text-muted">#{{ pokemon.dexNumber }}</p>
+              <p class="dex-number text-muted">#{{ pokemon.dexNumber }}</p>
 
-          <div class="type-badges mb-2">
-            <span
-                v-for="type in pokemon.types"
-                :key="type"
-                class="badge type-badge"
-                :class="`type-${type}`"
-            >
-              {{ type }}
-            </span>
+              <div class="type-badges mb-2">
+                <span
+                    v-for="type in pokemon.types"
+                    :key="type"
+                    class="badge type-badge"
+                    :class="`type-${type}`"
+                >
+                  {{ type }}
+                </span>
+              </div>
+
+              <span class="badge generation-badge">{{ pokemon.generation }}</span>
+            </div>
           </div>
 
-          <span class="badge generation-badge">{{ pokemon.generation }}</span>
+          <!-- Base Stats -->
+          <PokeStats :stats="pokemon.stats" />
+        </div>
+
+        <!-- Right: Evolution Chain -->
+        <div class="right-column">
+          <PokeLine
+              v-if="pokemon.evolution_chain_id"
+              :evolutionChainId="pokemon.evolution_chain_id"
+          />
         </div>
       </div>
-
-      <!-- Evolution Chain -->
-      <PokeLine v-if="evolutionChainUrl" :evolutionChainUrl="evolutionChainUrl" />
-
-      <!-- Base Stats -->
-      <PokeStats :stats="pokemon.stats" />
 
       <!-- Abilities Section -->
       <section class="abilities-section mt-5">
         <h3 class="section-title">Abilities</h3>
 
-        <div v-if="abilities.length" class="ability-list">
+        <div v-if="normalAbilities.length" class="ability-list">
           <div
               v-for="ability in normalAbilities"
               :key="ability.name"
@@ -80,7 +90,7 @@
       </section>
 
       <!-- Moves -->
-      <PokeMoves :moves="moves" />
+      <PokeMoves :moves="pokemon.moves" />
     </div>
   </div>
 </template>
@@ -88,48 +98,23 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { getFullPokemon } from '@/composables/usePokeApi'
 import PokeStats from './PokeStats.vue'
 import PokeMoves from './PokeMoves.vue'
 import PokeLine from './PokeLine.vue'
 
-const API_BASE_URL = 'https://pokeapi.co/api/v2'
-
 const route = useRoute()
 const pokemon = ref(null)
-const abilities = ref([])
-const moves = ref([])
-const evolutionChainUrl = ref(null)
 const loading = ref(false)
 const error = ref(null)
-const cache = new Map()
-
-const STAT_LABELS = {
-  hp: 'HP',
-  attack: 'Atk',
-  defense: 'Def',
-  'special-attack': 'SpA',
-  'special-defense': 'SpD',
-  speed: 'Spe'
-}
 
 const normalAbilities = computed(() =>
-    abilities.value.filter((a) => !a.is_hidden)
+    pokemon.value ? pokemon.value.abilities.filter((a) => !a.is_hidden) : []
 )
 
 const hiddenAbilities = computed(() =>
-    abilities.value.filter((a) => a.is_hidden)
+    pokemon.value ? pokemon.value.abilities.filter((a) => a.is_hidden) : []
 )
-
-const cachedFetch = async (url) => {
-  if (cache.has(url)) return cache.get(url)
-
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-
-  const data = await res.json()
-  cache.set(url, data)
-  return data
-}
 
 onMounted(async () => {
   const name = route.params.name
@@ -140,73 +125,13 @@ onMounted(async () => {
   error.value = null
 
   try {
-    const data = await cachedFetch(`${API_BASE_URL}/pokemon/${name}`)
-    const species = await cachedFetch(data.species.url)
-    const generation = await cachedFetch(species.generation.url)
+    const data = await getFullPokemon(name)
 
-    const genName = generation.names.find((n) => n.language.name === 'en')
-
-    evolutionChainUrl.value = species.evolution_chain?.url || null
-
-    pokemon.value = {
-      name: data.name.charAt(0).toUpperCase() + data.name.slice(1),
-      sprite:
-          data.sprites.other['official-artwork'].front_default ||
-          data.sprites.front_default,
-      types: data.types.map((t) => t.type.name),
-      dexNumber: String(data.id).padStart(4, '0'),
-      generation: genName ? genName.name : species.generation.name,
-      stats: data.stats.map((s) => ({
-        name: s.stat.name,
-        label: STAT_LABELS[s.stat.name] || s.stat.name,
-        base: s.base_stat
-      }))
+    if (!data) {
+      throw new Error(`No Pokémon found matching "${name}"`)
     }
 
-    // Fetch ability details
-    abilities.value = await Promise.all(
-        data.abilities.map(async (a) => {
-          const abilityData = await cachedFetch(a.ability.url)
-
-          const effectEntry = abilityData.effect_entries.find(
-              (e) => e.language.name === 'en'
-          )
-
-          return {
-            name: a.ability.name
-                .split('-')
-                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                .join(' '),
-            effect: effectEntry ? effectEntry.short_effect : 'No description available.',
-            is_hidden: a.is_hidden
-          }
-        })
-    )
-
-    // Fetch move details
-    moves.value = await Promise.all(
-        data.moves.map(async (m) => {
-          const moveData = await cachedFetch(m.move.url)
-
-          const effectEntry = moveData.effect_entries.find(
-              (e) => e.language.name === 'en'
-          )
-
-          return {
-            name: m.move.name
-                .split('-')
-                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                .join(' '),
-            type: moveData.type?.name || 'unknown',
-            accuracy: moveData.accuracy,
-            power: moveData.power,
-            damage_class: moveData.damage_class?.name || '—',
-            effect: effectEntry
-                ? effectEntry.short_effect.replace('$effect_chance', moveData.effect_chance ?? '—')
-                : 'No description available.'
-          }
-        })
-    )
+    pokemon.value = data
   } catch (err) {
     error.value = 'Failed to load Pokémon details.'
     console.error(err)
@@ -218,9 +143,31 @@ onMounted(async () => {
 
 <style scoped>
 .poke-details {
-  max-width: 800px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 2rem;
+}
+
+.top-section {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+.left-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.right-column {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .top-section {
+    flex-direction: column;
+  }
 }
 
 .back-btn {

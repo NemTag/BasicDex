@@ -65,14 +65,12 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-
-const API_BASE_URL = 'https://pokeapi.co/api/v2'
+import { getAllPokemonNames, getPokemon, fetchSprites } from '@/composables/usePokeApi'
 
 const searchQuery = ref('')
 const pokemonData = ref(null)
 const loading = ref(false)
 const error = ref(null)
-const cache = new Map()
 
 const allPokemonNames = ref([])
 const suggestions = ref([])
@@ -103,14 +101,8 @@ const handleClickOutside = (e) => {
   }
 }
 
-onMounted(async () => {
-  try {
-    const data = await cachedFetch(`${API_BASE_URL}/pokemon?limit=1302`)
-    allPokemonNames.value = data.results.map((p) => p.name)
-  } catch (err) {
-    console.error('Failed to load Pokémon list:', err)
-  }
-
+onMounted(() => {
+  allPokemonNames.value = getAllPokemonNames()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -142,17 +134,6 @@ const selectSuggestion = (name) => {
   searchPokemon()
 }
 
-const cachedFetch = async (url) => {
-  if (cache.has(url)) return cache.get(url)
-
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-
-  const data = await res.json()
-  cache.set(url, data)
-  return data
-}
-
 const searchPokemon = async () => {
   const name = searchQuery.value.trim().toLowerCase()
 
@@ -163,21 +144,21 @@ const searchPokemon = async () => {
   pokemonData.value = null
 
   try {
-    const pokemon = await cachedFetch(`${API_BASE_URL}/pokemon/${name}`)
-    const species = await cachedFetch(pokemon.species.url)
-    const generation = await cachedFetch(species.generation.url)
+    const pokemon = getPokemon(name)
 
-    const genName = generation.names.find((n) => n.language.name === 'en')
+    if (!pokemon) {
+      throw new Error(`No Pokémon found matching "${searchQuery.value}"`)
+    }
+
+    const sprites = await fetchSprites(pokemon.id)
 
     pokemonData.value = {
       name: pokemon.name.charAt(0).toUpperCase() + pokemon.name.slice(1),
-      sprite:
-          pokemon.sprites.other['official-artwork'].front_default ||
-          pokemon.sprites.front_default,
-      generation: genName ? genName.name : species.generation.name
+      sprite: sprites.official || sprites.default,
+      generation: pokemon.generation
     }
   } catch (err) {
-    error.value = `No Pokémon found matching "${searchQuery.value}"`
+    error.value = err.message
     console.error('Search failed:', err)
   } finally {
     loading.value = false
