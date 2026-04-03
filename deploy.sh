@@ -60,18 +60,18 @@ echo ""
 
 # ─── Build local database ───
 
-CSV_DIR="data/csv"
-JSON_DIR="data/json"
+CSV_DIR="src/data/csv"
+JSON_DIR="src/data/json"
 
 if [ "$FRESH" = true ] || [ ! -d "$CSV_DIR" ] || [ -z "$(ls -A "$CSV_DIR" 2>/dev/null)" ]; then
   echo "→ Downloading CSV files from PokeAPI..."
-  node data/download.js
+  node src/data/download.js
   echo ""
 fi
 
 if [ "$FRESH" = true ] || [ ! -d "$JSON_DIR" ] || [ -z "$(ls -A "$JSON_DIR" 2>/dev/null)" ]; then
   echo "→ Building JSON from CSV data..."
-  node data/build.js
+  node src/data/build.js
   echo ""
 fi
 
