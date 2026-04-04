@@ -9,6 +9,6 @@ const routes = [
 ]
 
 export default createRouter({
-    history: createWebHistory('/BasicDex/'),
+    history: createWebHistory('/'),
     routes
 })
