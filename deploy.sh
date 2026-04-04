@@ -97,6 +97,9 @@ case "$TARGET" in
 
     cd dist
 
+    # Clean any previous deploy state
+    rm -rf .git
+
     # Preserve custom domain config across deploys
     if [ -n "${CNAME_DOMAIN:-}" ]; then
       echo "$CNAME_DOMAIN" > CNAME
