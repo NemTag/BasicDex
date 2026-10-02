@@ -33,7 +33,9 @@ const FILES = [
     'evolution_triggers.csv',
     'evolution_trigger_prose.csv',
     'item_names.csv',
-    'location_names.csv'
+    'location_names.csv',
+    'version_groups.csv',
+    'regions.csv'
 ]
 
 const download = async () => {

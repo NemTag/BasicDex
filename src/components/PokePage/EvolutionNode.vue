@@ -13,6 +13,7 @@
       />
       <div v-else class="evo-sprite evo-sprite-missing">?</div>
       <span class="evo-name">{{ node.displayName }}</span>
+      <span v-if="node.formLabel" class="evo-form-label">{{ node.formLabel }}</span>
     </router-link>
 
     <!-- One branch per evolution / form; the spine on the left joins them -->
@@ -118,6 +119,13 @@ defineProps({
   color: #2c3e50;
 }
 
+.evo-form-label {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-align: center;
+  color: #6c757d;
+}
+
 /* Children column + connectors */
 .evo-children {
   position: relative;
@@ -218,8 +226,10 @@ defineProps({
   --evo-edge-color: #d63384;
 }
 
-.evo-branch.kind-mega > .evo-edge::before,
-.evo-branch.kind-gmax > .evo-edge::before {
+.evo-branch.kind-battle { --evo-edge-color: #fd7e14; }
+.evo-branch.kind-alternate { --evo-edge-color: #20a080; }
+
+.evo-branch:not(.kind-species) > .evo-edge::before {
   border-top-style: dashed;
 }
 
@@ -231,5 +241,15 @@ defineProps({
 .evo-branch.kind-gmax > .evo-edge > .evo-method {
   background-color: #fbe6f1;
   color: #d63384;
+}
+
+.evo-branch.kind-battle > .evo-edge > .evo-method {
+  background-color: #fff0e3;
+  color: #b35600;
+}
+
+.evo-branch.kind-alternate > .evo-edge > .evo-method {
+  background-color: #e3f5ef;
+  color: #11785f;
 }
 </style>

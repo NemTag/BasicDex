@@ -73,7 +73,9 @@ class PokedexSeeder extends Seeder
 
     /**
      * Insert every row of a CSV file into the given table in batches,
-     * storing empty CSV values as NULL.
+     * storing empty CSV values as NULL. Rows that exactly repeat an earlier
+     * row are skipped: PokeAPI's CSVs occasionally contain these
+     * (move_effect_prose lists Scale Shot's English effect twice).
      */
     private function importCsv(string $table, string $path): void
     {
@@ -87,12 +89,28 @@ class PokedexSeeder extends Seeder
             $columns = fgetcsv($handle, escape: '');
             $rowsPerInsert = intdiv(self::MAX_PARAMETERS_PER_INSERT, count($columns));
 
-            DB::transaction(function () use ($handle, $table, $columns, $rowsPerInsert): void {
+            // Only tables whose primary key comes from the CSV can collide;
+            // pokemon_moves uses its own id, and tracking its 600k+ rows would
+            // cost a lot of memory for nothing
+            $primaryKey = collect(Schema::getIndexes($table))->firstWhere('primary')['columns'] ?? [];
+            $seen = $primaryKey !== [] && array_diff($primaryKey, $columns) === [] ? [] : null;
+
+            DB::transaction(function () use ($handle, $table, $columns, $rowsPerInsert, $seen): void {
                 $batch = [];
 
                 while (($values = fgetcsv($handle, escape: '')) !== false) {
                     if ($values === [null]) {
                         continue;
+                    }
+
+                    if ($seen !== null) {
+                        $hash = md5(serialize($values));
+
+                        if (isset($seen[$hash])) {
+                            continue;
+                        }
+
+                        $seen[$hash] = true;
                     }
 
                     $batch[] = array_combine($columns, array_map(

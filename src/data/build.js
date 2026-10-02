@@ -12,6 +12,11 @@ const CSV_DIR = join(__dirname, 'csv')
 const OUT_DIR = join(__dirname, 'json')
 const ENGLISH_LANG_ID = '9'
 
+// Game mechanics (evolution methods, learnsets) follow Scarlet/Violet
+// and its DLC. Later games (Legends Z-A, Champions) are ignored; their
+// new megas still come in through forms.json and abilities.
+const SV_ERA = ['scarlet-violet', 'the-teal-mask', 'the-indigo-disk']
+
 // --- CSV Parser ---
 
 const parseCSV = (text) => {
@@ -68,6 +73,40 @@ const cleanProseMarkup = (text) => {
     return text
         .replace(/\[([^\]]+)\]\{[^}]+\}/g, '$1')
         .replace(/\[\]\{[^:]+:([^}]+)\}/g, '$1')
+}
+
+// Version group id → release order (ids aren't chronological: 28 and 29
+// are the Japanese Red/Green), plus the SV-era ids and the newest SV-era order
+const loadVersionOrder = async () => {
+    const groups = await loadCSV('version_groups.csv')
+    const order = Object.fromEntries(groups.map((g) => [g.id, parseInt(g.order, 10)]))
+    const svIds = new Set(groups.filter((g) => SV_ERA.includes(g.identifier)).map((g) => g.id))
+    const cutoff = Math.max(...[...svIds].map((id) => order[id]))
+
+    return { order, svIds, cutoff }
+}
+
+// PokeAPI flags each current method is_default, but sometimes on an
+// older game's row (Quilava: Lv. 14 from Gold/Silver; SV uses Lv. 17).
+// So per evolution and trigger, take the newest game's rows up to the
+// cutoff, and only for triggers that have a default row (drops retired
+// methods like Milotic's Beauty level-up).
+const selectCurrentRows = (rows, order, cutoff) => {
+    const groups = {}
+    for (const e of rows) {
+        if (order[e.version_group_id] > cutoff) continue
+
+        const key = [e.evolved_species_id, e.required_pokemon_form_id, e.evolved_pokemon_form_id, e.evolution_trigger_id].join('|')
+        groups[key] ??= []
+        groups[key].push(e)
+    }
+
+    return Object.values(groups)
+        .filter((group) => group.some((e) => e.is_default === '1'))
+        .flatMap((group) => {
+            const newest = Math.max(...group.map((e) => order[e.version_group_id]))
+            return group.filter((e) => order[e.version_group_id] === newest)
+        })
 }
 
 // --- Builders ---
@@ -217,25 +256,77 @@ const buildMoves = async () => {
 
 const buildPokemonMoves = async () => {
     const pokemonMoves = await loadCSV('pokemon_moves.csv')
+    const { order, svIds, cutoff } = await loadVersionOrder()
 
-    // Deduplicate: a pokemon can learn the same move via different methods/versions
-    const result = {}
-
+    // Per Pokémon: its Scarlet/Violet learnset, or for Pokémon not in
+    // SV, the newest game before Legends Z-A that has one (Spinda → BDSP)
+    const byPokemon = {}
     for (const pm of pokemonMoves) {
-        if (!result[pm.pokemon_id]) result[pm.pokemon_id] = new Set()
-        result[pm.pokemon_id].add(pm.move_id)
+        if (order[pm.version_group_id] > cutoff) continue
+
+        // All SV-era games count as one, so DLC moves add to the base game's
+        const era = svIds.has(pm.version_group_id) ? Infinity : order[pm.version_group_id]
+        byPokemon[pm.pokemon_id] ??= { era: -1, moves: new Set() }
+        const entry = byPokemon[pm.pokemon_id]
+
+        if (era > entry.era) Object.assign(entry, { era, moves: new Set() })
+        if (era === entry.era) entry.moves.add(pm.move_id)
     }
 
     const output = {}
-    for (const [pokemonId, moveSet] of Object.entries(result)) {
-        output[pokemonId] = [...moveSet].map(Number)
+    for (const [pokemonId, { moves }] of Object.entries(byPokemon)) {
+        output[pokemonId] = [...moves].map(Number)
     }
 
     await writeJSON('pokemon_moves.json', output)
 }
 
+// Species whose form is settled when they evolve (Kubfu becomes Rapid
+// Strike Urshifu in the Tower of Waters). PokeAPI gives one set of methods
+// per species, so this says which methods (`when`) give which form, plus
+// conditions PokeAPI doesn't record (`add`).
+const AMPED = 'Hardy, Brave, Adamant, Naughty, Docile, Impish, Lax, Hasty, Jolly, Naive, Rash, Sassy, Quirky'
+const LOW_KEY = 'Lonely, Bold, Relaxed, Timid, Serious, Modest, Mild, Quiet, Bashful, Calm, Gentle, Careful'
+const byGender = (name) => [
+    { form: `${name}-male`, add: { gender: 'male' } },
+    { form: `${name}-female`, add: { gender: 'female' } }
+]
+
+const FORM_EVOLUTIONS = {
+    urshifu: [
+        { form: 'urshifu-single-strike', when: { item: 'Scroll of Darkness' } },
+        { form: 'urshifu-rapid-strike', when: { item: 'Scroll of Waters' } }
+    ],
+    lycanroc: [
+        { form: 'lycanroc-midday', when: { time_of_day: 'day' } },
+        { form: 'lycanroc-midnight', when: { time_of_day: 'night' } },
+        { form: 'lycanroc-dusk', when: { time_of_day: 'dusk' }, add: { note: 'Own Tempo Rockruff' } }
+    ],
+    toxtricity: [
+        { form: 'toxtricity-amped', add: { note: 'Amped nature', note_detail: AMPED } },
+        { form: 'toxtricity-low-key', add: { note: 'Low Key nature', note_detail: LOW_KEY } }
+    ],
+    meowstic: byGender('meowstic'),
+    oinkologne: byGender('oinkologne'),
+    basculegion: byGender('basculegion').map((v) => ({ ...v, from: 'basculin-white-striped' })),
+    wormadam: ['Plant', 'Sandy', 'Trash'].map((c) => (
+        { form: `wormadam-${c.toLowerCase()}`, add: { note: `${c} Cloak` } })),
+    // Pumpkaboo's size carries over, so each size is its own line
+    gourgeist: ['small', 'average', 'large', 'super'].map((s) => (
+        { form: `gourgeist-${s}`, from: `pumpkaboo-${s}` })),
+    dudunsparce: [
+        { form: 'dudunsparce-two-segment' },
+        { form: 'dudunsparce-three-segment', add: { note: 'Rare (1 in 100)' } }
+    ],
+    maushold: [
+        { form: 'maushold-family-of-four' },
+        { form: 'maushold-family-of-three', add: { note: 'Rare (1 in 100)' } }
+    ]
+}
+
 const buildEvolution = async () => {
     const evo = await loadCSV('pokemon_evolution.csv')
+    const pokemon = await loadCSV('pokemon.csv')
     const species = await loadCSV('pokemon_species.csv')
     const triggers = await loadCSV('evolution_triggers.csv')
     const triggerProse = await loadCSV('evolution_trigger_prose.csv')
@@ -243,6 +334,9 @@ const buildEvolution = async () => {
     const locationNames = await loadCSV('location_names.csv')
     const moves = await loadCSV('moves.csv')
     const typeNames = await loadCSV('types.csv')
+    const pokemonForms = await loadCSV('pokemon_forms.csv')
+    const regions = await loadCSV('regions.csv')
+    const { order, cutoff } = await loadVersionOrder()
 
     const englishNames = (rows, idKey) => Object.fromEntries(
         rows
@@ -259,11 +353,25 @@ const buildEvolution = async () => {
     const moveMap = Object.fromEntries(moves.map((m) => [m.id, m.identifier]))
     const typeMap = Object.fromEntries(typeNames.map((t) => [t.id, t.identifier]))
     const speciesNameMap = Object.fromEntries(species.map((s) => [s.id, s.identifier]))
+    const regionNameMap = Object.fromEntries(
+        regions.map((r) => [r.id, r.identifier.charAt(0).toUpperCase() + r.identifier.slice(1)])
+    )
+
+    // Regional form id → { pokemonId, region } ('alola', 'galar', …); totems and caps aren't regional
+    const regionalForms = new Map(
+        pokemonForms
+            .filter((f) => REGIONAL.test(f.form_identifier) && !COSMETIC.test(f.form_identifier))
+            .map((f) => [f.id, {
+                pokemonId: parseInt(f.pokemon_id, 10),
+                region: f.form_identifier.match(REGIONAL)[2],
+                isDefault: f.is_default === '1'
+            }])
+    )
 
     const GENDERS = { 1: 'female', 2: 'male' }
     const int = (v) => (v ? parseInt(v, 10) : null)
 
-    // One row = one way to evolve. Species can have several (e.g. Leafeon: Leaf Stone or Moss Rock).
+    // One row = one way to evolve; a species can have several.
     // Only truthy conditions are kept so the JSON stays small.
     const toMethod = (e) => {
         const method = {
@@ -290,7 +398,9 @@ const buildEvolution = async () => {
             needs_overworld_rain: e.needs_overworld_rain === '1',
             turn_upside_down: e.turn_upside_down === '1',
             min_steps: int(e.minimum_steps),
-            min_damage_taken: int(e.minimum_damage_taken)
+            min_damage_taken: int(e.minimum_damage_taken),
+            // Set on region-locked evolutions (Pikachu → Alolan Raichu)
+            region: regionNameMap[e.region_id] || null
         }
 
         return Object.fromEntries(
@@ -311,31 +421,138 @@ const buildEvolution = async () => {
         })
     }
 
-    const evoMethods = {}
-    for (const e of evo) {
-        const methods = (evoMethods[e.evolved_species_id] ??= [])
-        const method = toMethod(e)
-
-        // Different games can list the same method twice; keep one copy
+    // Different games can list the same method twice; keep one copy
+    const addMethod = (methods, method) => {
         if (!methods.some((m) => JSON.stringify(m) === JSON.stringify(method))) {
             methods.push(method)
         }
     }
+
+    const speciesById = Object.fromEntries(species.map((s) => [s.id, s]))
+    const pokemonIdByName = Object.fromEntries(pokemon.map((p) => [p.identifier, parseInt(p.id, 10)]))
+    const regionalChains = {}
+    const regionalGroup = (speciesId, region) => {
+        const chainId = speciesById[speciesId].evolution_chain_id
+        regionalChains[chainId] ??= {}
+        regionalChains[chainId][region] ??= { pokemon: new Set(), edges: new Map() }
+        return regionalChains[chainId][region]
+    }
+
+    // Rows that produce or need a regional form (Alolan Raichu, Perrserker
+    // from Galarian Meowth) go to regional.json; the rest is the main chain
+    const evoMethods = {}
+    const hasMainRow = new Set()
+    const hasRegionalRow = new Set()
+
+    for (const e of selectCurrentRows(evo, order, cutoff)) {
+        const to = regionalForms.get(e.evolved_pokemon_form_id)
+        const from = regionalForms.get(e.required_pokemon_form_id)
+
+        if (!to && !from) {
+            // Legends: Arceus tags all its rows with Hisui; only regional
+            // evolutions are actually region-locked
+            const { region, ...method } = toMethod(e)
+
+            hasMainRow.add(e.evolved_species_id)
+            evoMethods[e.evolved_species_id] ??= []
+            addMethod(evoMethods[e.evolved_species_id], method)
+            continue
+        }
+
+        hasRegionalRow.add(e.evolved_species_id)
+
+        // No form id means the species' default Pokémon, whose id is the species id
+        const toId = to?.pokemonId ?? parseInt(e.evolved_species_id, 10)
+        const fromId = from?.pokemonId ?? parseInt(speciesById[e.evolved_species_id].evolves_from_species_id, 10)
+        const group = regionalGroup(e.evolved_species_id, (to ?? from).region)
+
+        group.pokemon.add(fromId).add(toId)
+        const key = `${fromId}>${toId}`
+        if (!group.edges.has(key)) group.edges.set(key, { from: fromId, to: toId, methods: [] })
+        addMethod(group.edges.get(key).methods, toMethod(e))
+    }
+
+    // Regional forms with no evolution (Galarian Articuno) still get a card
+    const speciesOfPokemon = Object.fromEntries(pokemon.map((p) => [p.id, p.species_id]))
+    for (const { pokemonId, region, isDefault } of regionalForms.values()) {
+        if (isDefault) regionalGroup(speciesOfPokemon[pokemonId], region).pokemon.add(pokemonId)
+    }
+
+    // Battle forms of regional forms, which PokeAPI doesn't link to their base
+    for (const [form, base] of Object.entries(REGIONAL_FORM_CHANGES)) {
+        const [formId, baseId] = [pokemonIdByName[form], pokemonIdByName[base]]
+        const group = regionalGroup(speciesOfPokemon[formId], form.match(REGIONAL)[2])
+        group.edges.set(`${baseId}>${formId}`, { from: baseId, to: formId, kind: 'battle', methods: [] })
+    }
+
+    const matches = (method, when = {}) =>
+        Object.entries(when).every(([k, v]) => method[k] === v)
+
+    // One entry per form, each with the methods that produce it
+    const variantsFor = (speciesName, methods) => FORM_EVOLUTIONS[speciesName]?.map(({ form, from, when, add }) => {
+        if (!pokemonIdByName[form]) throw new Error(`FORM_EVOLUTIONS: unknown pokemon "${form}"`)
+        if (from && !pokemonIdByName[from]) throw new Error(`FORM_EVOLUTIONS: unknown pokemon "${from}"`)
+
+        return {
+            pokemon_id: pokemonIdByName[form],
+            name: form,
+            from_pokemon_id: from ? pokemonIdByName[from] : undefined,
+            methods: methods.filter((m) => matches(m, when)).map((m) => ({ ...m, ...add }))
+        }
+    })
 
     const result = {}
 
     for (const [chainId, members] of Object.entries(speciesChainMap)) {
         members.sort((a, b) => a.order - b.order)
 
-        result[chainId] = members.map((m) => ({
-            id: m.id,
-            name: m.name,
-            evolves_from: m.evolves_from,
-            methods: evoMethods[String(m.id)] || []
-        }))
+        result[chainId] = members.map((m) => {
+            const methods = evoMethods[String(m.id)] || []
+
+            return {
+                id: m.id,
+                name: m.name,
+                evolves_from: m.evolves_from,
+                methods,
+                variants: variantsFor(m.name, methods),
+                // Only evolves from a regional form (Perrserker), so it lives in the regional section
+                regional_only: hasRegionalRow.has(String(m.id)) && !hasMainRow.has(String(m.id)) || undefined
+            }
+        })
     }
 
     await writeJSON('evolution.json', result)
+
+    const regional = {}
+    for (const [chainId, groups] of Object.entries(regionalChains)) {
+        regional[chainId] = {}
+        for (const [region, { pokemon: ids, edges }] of Object.entries(groups)) {
+            regional[chainId][region] = { pokemon: [...ids], edges: [...edges.values()] }
+        }
+    }
+
+    await writeJSON('regional.json', regional)
+}
+
+// Galarian Darmanitan's Zen Mode; the regular one is linked through forms.json
+const REGIONAL_FORM_CHANGES = {
+    'darmanitan-galar-zen': 'darmanitan-galar-standard'
+}
+
+const REGIONAL = /(^|-)(alola|galar|hisui|paldea)(-|$)/
+// Looks-only variants, kept for a future "Alternate forms" picker
+const COSMETIC = /(^|-)(totem|cap|cosplay|rock-star|belle|pop-star|phd|libre|starter|battle-bond|power-construct|own-tempo)(-|$)/
+
+const formCategory = (f, isDefaultPokemon) => {
+    if (isDefaultPokemon) return 'default'
+    if (f.is_mega === '1') return 'mega'
+    if (f.form_identifier === 'gmax') return 'gmax'
+    if (COSMETIC.test(f.form_identifier)) return 'cosmetic'
+    // Minior's colours differ only in looks; red stands in for the rest
+    if (f.identifier.startsWith('minior-') && !f.form_identifier.startsWith('red')) return 'cosmetic'
+    if (REGIONAL.test(f.form_identifier)) return 'regional'
+    if (f.is_battle_only === '1') return 'battle'
+    return 'alternate'
 }
 
 const buildForms = async () => {
@@ -343,41 +560,47 @@ const buildForms = async () => {
     const formNames = await loadCSV('pokemon_form_names.csv')
     const pokemon = await loadCSV('pokemon.csv')
 
-    // Map pokemon_id → species_id so we can group forms by base species
-    const speciesLookup = Object.fromEntries(
-        pokemon.map((p) => [p.id, p.species_id])
-    )
-
-    const nameMap = {}
+    const namesByForm = {}
     for (const fn of formNames) {
         if (fn.local_language_id === ENGLISH_LANG_ID) {
-            nameMap[fn.pokemon_form_id] = fn.pokemon_name || fn.form_name
+            namesByForm[fn.pokemon_form_id] = fn
+        }
+    }
+
+    // One form row per Pokémon: its default (Koraidon's builds have none
+    // flagged, so fall back to the first). Other rows of the same Pokémon
+    // (Unown letters) share its stats and page.
+    const formByPokemon = {}
+    for (const f of forms) {
+        if (f.is_default === '1' || !formByPokemon[f.pokemon_id]) {
+            formByPokemon[f.pokemon_id] = f
         }
     }
 
     // Group by species_id
     const result = {}
 
-    for (const f of forms) {
-        const isMega = f.is_mega === '1'
-        const isGmax = f.form_identifier === 'gmax'
+    for (const p of pokemon) {
+        const f = formByPokemon[p.id]
+        if (!f) continue
 
-        if (!isMega && !isGmax) continue
+        const names = namesByForm[f.id]
 
-        const speciesId = speciesLookup[f.pokemon_id]
-        if (!speciesId) continue
-
-        if (!result[speciesId]) result[speciesId] = []
-
-        result[speciesId].push({
+        result[p.species_id] ??= []
+        result[p.species_id].push({
             form_id: parseInt(f.id, 10),
-            pokemon_id: parseInt(f.pokemon_id, 10),
+            pokemon_id: parseInt(p.id, 10),
             name: f.identifier,
-            form_name: f.form_identifier,
-            display_name: nameMap[f.id] || f.identifier,
-            is_mega: isMega,
-            is_gmax: isGmax
+            form_name: f.form_identifier || null,
+            form_label: names?.form_name || null,
+            display_name: names?.pokemon_name || names?.form_name || f.identifier,
+            category: formCategory(f, p.is_default === '1')
         })
+    }
+
+    // Species with only their default form don't need an entry
+    for (const [speciesId, entries] of Object.entries(result)) {
+        if (entries.length === 1) delete result[speciesId]
     }
 
     await writeJSON('forms.json', result)

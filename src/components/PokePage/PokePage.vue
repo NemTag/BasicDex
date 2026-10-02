@@ -63,6 +63,10 @@
       <section class="abilities-section mt-5">
         <h3 class="section-title">Abilities</h3>
 
+        <p v-if="!pokemon.abilities.length" class="text-muted">
+          No ability data available yet.
+        </p>
+
         <div v-if="normalAbilities.length" class="ability-list">
           <div
               v-for="ability in normalAbilities"
