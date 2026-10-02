@@ -7,6 +7,10 @@ import formsData from '@/data/json/forms.json'
 
 const API_BASE_URL = '/api'
 
+const pokemonNameById = Object.fromEntries(
+    Object.values(pokemonData).map((p) => [p.id, p.name])
+)
+
 // Sprite cache — only network calls left
 // ponytail: cached signed URLs expire after an hour (see getSprite); add a TTL here if sessions run longer
 const spriteCache = new Map()
@@ -223,6 +227,9 @@ const getEvolutionTree = (evolutionChainId) => {
             key: stage.name,
             pokemonId: stage.id,
             name: stage.name,
+            // pokemon.json key; differs from the species name for 37
+            // species (lycanroc → lycanroc-midday)
+            slug: pokemonNameById[stage.id] || stage.name,
             displayName: titleCase(stage.name),
             kind: 'species',
             methods: formatEvolutionMethods(stage.methods),
@@ -246,6 +253,7 @@ const getEvolutionTree = (evolutionChainId) => {
                 key: form.name,
                 pokemonId: form.pokemon_id,
                 name: form.name,
+                slug: form.name,
                 displayName: form.displayName,
                 kind: form.is_mega ? 'mega' : 'gmax',
                 methods: [{ text: form.is_mega ? 'Mega Evolution' : 'Gigantamax', detail: null }],

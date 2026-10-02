@@ -1,6 +1,7 @@
 <template>
   <div class="evo-node">
-    <div
+    <router-link
+        :to="`/pokemon/${node.slug}`"
         class="evo-card"
         :class="[`kind-${node.kind}`, { current: node.pokemonId === currentId }]"
     >
@@ -12,7 +13,7 @@
       />
       <div v-else class="evo-sprite evo-sprite-missing">?</div>
       <span class="evo-name">{{ node.displayName }}</span>
-    </div>
+    </router-link>
 
     <!-- One branch per evolution / form; the spine on the left joins them -->
     <div v-if="node.children.length" class="evo-children">
@@ -72,6 +73,12 @@ defineProps({
   border-radius: 12px;
   border: 2px solid transparent;
   flex-shrink: 0;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.evo-card:hover {
+  background-color: #f8f9fa;
 }
 
 .evo-card.current {

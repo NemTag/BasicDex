@@ -12,7 +12,9 @@ const routes = [
 
 const router = createRouter({
     history: createWebHistory('/'),
-    routes
+    routes,
+    // Back/forward restores the old position; new pages start at the top
+    scrollBehavior: (to, from, savedPosition) => savedPosition || { top: 0 }
 })
 
 router.beforeEach((to) => {
