@@ -238,10 +238,65 @@ const buildEvolution = async () => {
     const evo = await loadCSV('pokemon_evolution.csv')
     const species = await loadCSV('pokemon_species.csv')
     const triggers = await loadCSV('evolution_triggers.csv')
+    const triggerProse = await loadCSV('evolution_trigger_prose.csv')
+    const itemNames = await loadCSV('item_names.csv')
+    const locationNames = await loadCSV('location_names.csv')
+    const moves = await loadCSV('moves.csv')
+    const typeNames = await loadCSV('types.csv')
+
+    const englishNames = (rows, idKey) => Object.fromEntries(
+        rows
+            .filter((r) => r.local_language_id === ENGLISH_LANG_ID)
+            .map((r) => [r[idKey], r.name])
+    )
 
     const triggerMap = Object.fromEntries(
         triggers.map((t) => [t.id, t.identifier])
     )
+    const triggerLabelMap = englishNames(triggerProse, 'evolution_trigger_id')
+    const itemMap = englishNames(itemNames, 'item_id')
+    const locationMap = englishNames(locationNames, 'location_id')
+    const moveMap = Object.fromEntries(moves.map((m) => [m.id, m.identifier]))
+    const typeMap = Object.fromEntries(typeNames.map((t) => [t.id, t.identifier]))
+    const speciesNameMap = Object.fromEntries(species.map((s) => [s.id, s.identifier]))
+
+    const GENDERS = { 1: 'female', 2: 'male' }
+    const int = (v) => (v ? parseInt(v, 10) : null)
+
+    // One row = one way to evolve. Species can have several (e.g. Leafeon: Leaf Stone or Moss Rock).
+    // Only truthy conditions are kept so the JSON stays small.
+    const toMethod = (e) => {
+        const method = {
+            trigger: triggerMap[e.evolution_trigger_id] || 'unknown',
+            trigger_label: triggerLabelMap[e.evolution_trigger_id] || null,
+            min_level: int(e.minimum_level),
+            min_happiness: int(e.minimum_happiness),
+            min_beauty: int(e.minimum_beauty),
+            min_affection: int(e.minimum_affection),
+            item: itemMap[e.trigger_item_id] || null,
+            held_item: itemMap[e.held_item_id] || null,
+            known_move: moveMap[e.known_move_id] || null,
+            known_move_type: typeMap[e.known_move_type_id] || null,
+            used_move: moveMap[e.used_move_id] || null,
+            min_move_count: int(e.minimum_move_count),
+            location: locationMap[e.location_id] || null,
+            time_of_day: e.time_of_day || null,
+            gender: GENDERS[e.gender_id] || null,
+            // 1: Atk > Def, -1: Atk < Def, 0: Atk = Def (0 is meaningful, so check for blank)
+            relative_physical_stats: e.relative_physical_stats !== '' ? parseInt(e.relative_physical_stats, 10) : null,
+            party_species: speciesNameMap[e.party_species_id] || null,
+            party_type: typeMap[e.party_type_id] || null,
+            trade_species: speciesNameMap[e.trade_species_id] || null,
+            needs_overworld_rain: e.needs_overworld_rain === '1',
+            turn_upside_down: e.turn_upside_down === '1',
+            min_steps: int(e.minimum_steps),
+            min_damage_taken: int(e.minimum_damage_taken)
+        }
+
+        return Object.fromEntries(
+            Object.entries(method).filter(([, v]) => v !== null && v !== false)
+        )
+    }
 
     const speciesChainMap = {}
     for (const s of species) {
@@ -256,18 +311,14 @@ const buildEvolution = async () => {
         })
     }
 
-    const evoDetails = {}
+    const evoMethods = {}
     for (const e of evo) {
-        evoDetails[e.evolved_species_id] = {
-            trigger: triggerMap[e.evolution_trigger_id] || 'unknown',
-            min_level: e.minimum_level ? parseInt(e.minimum_level, 10) : null,
-            min_happiness: e.minimum_happiness ? parseInt(e.minimum_happiness, 10) : null,
-            min_beauty: e.minimum_beauty ? parseInt(e.minimum_beauty, 10) : null,
-            min_affection: e.minimum_affection ? parseInt(e.minimum_affection, 10) : null,
-            needs_overworld_rain: e.needs_overworld_rain === '1',
-            party_species_id: e.party_species_id || null,
-            party_type_id: e.party_type_id || null,
-            trigger_item_id: e.trigger_item_id || null
+        const methods = (evoMethods[e.evolved_species_id] ??= [])
+        const method = toMethod(e)
+
+        // Different games can list the same method twice; keep one copy
+        if (!methods.some((m) => JSON.stringify(m) === JSON.stringify(method))) {
+            methods.push(method)
         }
     }
 
@@ -280,7 +331,7 @@ const buildEvolution = async () => {
             id: m.id,
             name: m.name,
             evolves_from: m.evolves_from,
-            details: evoDetails[String(m.id)] || null
+            methods: evoMethods[String(m.id)] || []
         }))
     }
 

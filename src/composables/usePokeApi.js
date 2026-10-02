@@ -111,48 +111,150 @@ const getMoves = (pokemonId) => {
         .filter(Boolean)
 }
 
+const titleCase = (identifier) =>
+    identifier
+        .split('-')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ')
+
+const TIME_OF_DAY = { day: 'during the day', night: 'at night', dusk: 'at dusk' }
+const RELATIVE_STATS = { 1: 'Atk > Def', 0: 'Atk = Def', '-1': 'Atk < Def' }
+const MOVE_STYLES = { 'agile-style-move': ' (agile style)', 'strong-style-move': ' (strong style)' }
+
 /**
- * Get the evolution chain for a pokemon.
- * Returns an array of stages with trigger info.
+ * Turn one evolution method from evolution.json into a short label,
+ * e.g. "Lv. 20, Atk > Def" or "Dawn Stone, ♀".
  */
-const getEvolutionChain = (evolutionChainId) => {
-    const chain = evolutionData[String(evolutionChainId)]
-    if (!chain) return []
+const formatEvolutionMethod = (m) => {
+    let head
+    switch (m.trigger) {
+        case 'level-up':
+            head = m.min_level ? `Lv. ${m.min_level}` : 'Level up'
+            break
+        case 'use-item':
+            head = m.item
+            break
+        case 'trade':
+            head = 'Trade'
+            break
+        case 'use-move':
+        case 'agile-style-move':
+        case 'strong-style-move':
+            head = `${titleCase(m.used_move)} ×${m.min_move_count}${MOVE_STYLES[m.trigger] || ''}`
+            break
+        case 'take-damage':
+            head = `Take ${m.min_damage_taken} damage, then pass the stone arch`
+            break
+        case 'recoil-damage':
+            head = `Take ${m.min_damage_taken} recoil damage`
+            break
+        default:
+            head = m.trigger_label || titleCase(m.trigger)
+    }
 
-    return chain.map((stage) => {
-        let triggerLabel = null
+    const conditions = [
+        m.min_happiness && `Happiness ${m.min_happiness}`,
+        m.min_beauty && `Beauty ${m.min_beauty}`,
+        m.min_affection && `Affection ${m.min_affection}`,
+        m.held_item && `holding ${m.held_item}`,
+        m.known_move && `knowing ${titleCase(m.known_move)}`,
+        m.known_move_type && `knowing a ${titleCase(m.known_move_type)} move`,
+        m.location && `at ${m.location}`,
+        m.time_of_day && TIME_OF_DAY[m.time_of_day],
+        m.gender === 'female' && '♀',
+        m.gender === 'male' && '♂',
+        m.relative_physical_stats !== undefined && RELATIVE_STATS[m.relative_physical_stats],
+        m.party_species && `with ${titleCase(m.party_species)} in party`,
+        m.party_type && `with a ${titleCase(m.party_type)} type in party`,
+        m.trade_species && `for ${titleCase(m.trade_species)}`,
+        m.needs_overworld_rain && 'in rain',
+        m.turn_upside_down && 'console upside down',
+        m.min_steps && `after ${m.min_steps} steps`
+    ].filter(Boolean)
 
-        if (stage.details) {
-            const d = stage.details
+    // A phrase straight after the head reads as one clause ("Level up at Mt. Coronet");
+    // everything else is comma-separated ("Lv. 20, Atk > Def")
+    return conditions.reduce(
+        (label, c, i) => label + (i === 0 && /^[a-z]/.test(c) ? ' ' : ', ') + c,
+        head
+    )
+}
 
-            if (d.trigger === 'level-up' && d.min_level) {
-                triggerLabel = `↑ Lv. ${d.min_level}`
-            } else if (d.trigger === 'level-up' && d.min_happiness) {
-                triggerLabel = `↑ Happiness ${d.min_happiness}`
-            } else if (d.trigger === 'level-up' && d.min_beauty) {
-                triggerLabel = `↑ Beauty ${d.min_beauty}`
-            } else if (d.trigger === 'level-up' && d.min_affection) {
-                triggerLabel = `↑ Affection ${d.min_affection}`
-            } else if (d.trigger === 'level-up' && d.needs_overworld_rain) {
-                triggerLabel = '↑ Rain'
-            } else if (d.trigger === 'level-up') {
-                triggerLabel = '↑ Level Up'
-            } else {
-                triggerLabel = `↑ ${d.trigger.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`
-            }
+/**
+ * Labels for every way a species evolves. Methods that differ only by
+ * location (Magnezone has five) collapse into one label; the full list
+ * goes in `detail` for a tooltip.
+ */
+const formatEvolutionMethods = (methods) => {
+    const groups = new Map()
+
+    for (const m of methods) {
+        const { location, ...rest } = m
+        const key = JSON.stringify(rest)
+        if (!groups.has(key)) groups.set(key, { method: rest, locations: [] })
+        if (location) groups.get(key).locations.push(location)
+    }
+
+    return [...groups.values()].map(({ method, locations }) => {
+        if (locations.length <= 1) {
+            return { text: formatEvolutionMethod({ ...method, location: locations[0] }), detail: null }
         }
 
+        const others = locations.length - 1
         return {
-            id: stage.id,
-            name: stage.name,
-            displayName: stage.name
-                .split('-')
-                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                .join(' '),
-            triggerLabel,
-            evolves_from: stage.evolves_from
+            text: `${formatEvolutionMethod({ ...method, location: locations[0] })} or ${others} other place${others > 1 ? 's' : ''}`,
+            detail: locations.join(', ')
         }
     })
+}
+
+/**
+ * Build the evolution chain as a tree. Each node:
+ *   { key, pokemonId, name, displayName, kind: 'species' | 'mega' | 'gmax', methods, children }
+ * `methods` are the labels for how the parent becomes this node. Mega and
+ * Gigantamax forms hang off their species as leaf nodes, since they don't evolve further.
+ */
+const getEvolutionTree = (evolutionChainId) => {
+    const chain = evolutionData[String(evolutionChainId)]
+    if (!chain?.length) return null
+
+    const nodes = new Map(
+        chain.map((stage) => [stage.id, {
+            key: stage.name,
+            pokemonId: stage.id,
+            name: stage.name,
+            displayName: titleCase(stage.name),
+            kind: 'species',
+            methods: formatEvolutionMethods(stage.methods),
+            children: []
+        }])
+    )
+
+    let root = null
+    for (const stage of chain) {
+        const node = nodes.get(stage.id)
+        const parent = nodes.get(stage.evolves_from)
+
+        if (parent) parent.children.push(node)
+        else root ??= node
+    }
+
+    // Forms go after evolutions so the main line reads first
+    for (const node of nodes.values()) {
+        for (const form of getForms(node.pokemonId)) {
+            node.children.push({
+                key: form.name,
+                pokemonId: form.pokemon_id,
+                name: form.name,
+                displayName: form.displayName,
+                kind: form.is_mega ? 'mega' : 'gmax',
+                methods: [{ text: form.is_mega ? 'Mega Evolution' : 'Gigantamax', detail: null }],
+                children: []
+            })
+        }
+    }
+
+    return root
 }
 
 /**
@@ -167,10 +269,9 @@ const getForms = (speciesId) => {
         .map((f) => ({
             name: f.name,
             pokemon_id: f.pokemon_id,
-            displayName: f.display_name,
+            displayName: f.display_name || titleCase(f.name),
             is_mega: f.is_mega,
-            is_gmax: f.is_gmax,
-            triggerLabel: f.is_mega ? '↑ Mega Evolution' : '↑ Gigantamax'
+            is_gmax: f.is_gmax
         }))
 }
 
@@ -211,7 +312,7 @@ export {
     getAllPokemonNames,
     getAbilities,
     getMoves,
-    getEvolutionChain,
+    getEvolutionTree,
     getForms,
     getFullPokemon
 }
