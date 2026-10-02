@@ -10,5 +10,10 @@ export default defineConfig({
     alias: {
       '@': '/src'
     }
+  },
+  server: {
+    watch: {
+      ignored: ['**/backend/**']
+    }
   }
 })
