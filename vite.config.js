@@ -14,6 +14,9 @@ export default defineConfig({
   server: {
     watch: {
       ignored: ['**/backend/**']
+    },
+    proxy: {
+      '/api': 'http://127.0.0.1:8001'
     }
   }
 })

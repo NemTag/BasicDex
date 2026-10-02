@@ -11,6 +11,6 @@ class PokemonInfoController extends Controller
         $path = "sprites/{$id}.png";
         abort_unless(Storage::exists($path), 404);
 
-        return ['url' => Storage::url($path)];
+        return ['url' => Storage::temporaryUrl($path, now()->addMinutes(5))];
     }
 }
