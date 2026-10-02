@@ -16,7 +16,7 @@
 
     <div v-if="pokemon" class="detail-content mt-4">
       <div class="top-section">
-        <!-- Left: Pokemon info + stats -->
+        <!-- Left: Pokemon info -->
         <div class="left-column">
           <div class="detail-card d-flex align-items-start">
             <img
@@ -44,23 +44,28 @@
               <span class="badge generation-badge">{{ pokemon.generation }}</span>
             </div>
           </div>
+        </div>
 
-          <!-- Base Stats -->
+        <!-- Right: Base Stats -->
+        <div class="right-column">
           <PokeStats :stats="pokemon.stats" />
         </div>
-
-        <!-- Right: Evolution Chain -->
-        <div class="right-column">
-          <PokeLine
-              v-if="pokemon.evolution_chain_id"
-              :evolutionChainId="pokemon.evolution_chain_id"
-          />
-        </div>
       </div>
+
+      <!-- Evolution Chain (full width: branching chains need the room) -->
+      <PokeLine
+          v-if="pokemon.evolution_chain_id"
+          :evolutionChainId="pokemon.evolution_chain_id"
+          :currentId="pokemon.id"
+      />
 
       <!-- Abilities Section -->
       <section class="abilities-section mt-5">
         <h3 class="section-title">Abilities</h3>
+
+        <p v-if="!pokemon.abilities.length" class="text-muted">
+          No ability data available yet.
+        </p>
 
         <div v-if="normalAbilities.length" class="ability-list">
           <div

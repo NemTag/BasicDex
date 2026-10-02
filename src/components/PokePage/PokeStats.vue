@@ -1,5 +1,5 @@
 <template>
-  <section class="stats-section mt-5">
+  <section class="stats-section">
     <h3 class="section-title">Base Stats</h3>
 
     <div class="stat-list">

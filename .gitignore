@@ -33,7 +33,13 @@ coverage
 /src/data/csv/ability_prose.csv
 /src/data/json/evolution.json
 /src/data/csv/evolution_triggers.csv
+/src/data/csv/evolution_trigger_prose.csv
+/src/data/csv/item_names.csv
+/src/data/csv/location_names.csv
+/src/data/csv/version_groups.csv
+/src/data/csv/regions.csv
 /src/data/json/forms.json
+/src/data/json/regional.json
 /src/data/csv/generation_names.csv
 /src/data/csv/generations.csv
 /src/data/csv/move_damage_classes.csv
