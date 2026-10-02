@@ -5,9 +5,10 @@ import pokemonMovesData from '@/data/json/pokemon_moves.json'
 import evolutionData from '@/data/json/evolution.json'
 import formsData from '@/data/json/forms.json'
 
-const API_BASE_URL = 'https://pokeapi.co/api/v2'
+const API_BASE_URL = '/api'
 
 // Sprite cache — only network calls left
+// ponytail: cached signed URLs expire after an hour (see getSprite); add a TTL here if sessions run longer
 const spriteCache = new Map()
 const pending = new Map()
 
@@ -25,7 +26,7 @@ const STAT_LABELS = {
  * This is the only network call we still make.
  */
 const fetchSprites = async (idOrName) => {
-    const url = `${API_BASE_URL}/pokemon/${idOrName}`
+    const url = `${API_BASE_URL}/pokemon/${idOrName}/sprite`
 
     if (spriteCache.has(url)) return spriteCache.get(url)
     if (pending.has(url)) return pending.get(url)
@@ -37,8 +38,8 @@ const fetchSprites = async (idOrName) => {
         })
         .then((data) => {
             const sprites = {
-                official: data.sprites?.other?.['official-artwork']?.front_default || null,
-                default: data.sprites?.front_default || null
+                official: data.url,
+                default: null
             }
             spriteCache.set(url, sprites)
             pending.delete(url)
